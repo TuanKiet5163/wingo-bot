@@ -5,7 +5,7 @@ import os
 import json
 
 # ==== CẤU HÌNH ====
-TOKEN = os.getenv("8044361965:AAEe2xTU0PCmYTtH4UQj1v6z5RTkE2Jo_j4")  # Đặt biến môi trường trên Railway
+TOKEN = os.getenv("8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc")  # Đặt biến môi trường trên Railway
 VON_BAN_DAU = 500000
 GAP_THEP = [5000, 10000, 20000, 40000]
 DU_LIEU_FILE = "data.json"
