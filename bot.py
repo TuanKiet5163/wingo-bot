@@ -15,8 +15,8 @@ GAP_THEP = {
     "hard": [20000, 40000, 80000, 160000]
 }
 
-# Cảnh báo
-MAX_PROFIT = 100000
+# Giới hạn cảnh báo
+TARGET_PROFIT = 100000
 MAX_LOSS = -150000
 
 def init_data():
@@ -32,7 +32,13 @@ def write_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
 
-def get_next_bet(history, strategy):
+def get_next_bet(user):
+    history = user["history"]
+    strategy = user.get("strategy")
+    if not strategy or strategy not in GAP_THEP:
+        return 0
+    levels = GAP_THEP[strategy]
+
     losses = 0
     for entry in reversed(history):
         if entry["date"] != datetime.now().strftime("%Y-%m-%d"):
@@ -41,13 +47,9 @@ def get_next_bet(history, strategy):
             losses += 1
         else:
             break
-    levels = GAP_THEP.get(strategy, GAP_THEP["medium"])
-    if losses == 0:
-        return levels[0]
-    elif losses < len(levels):
-        return levels[losses]
-    else:
-        return levels[0]
+    if losses >= len(levels):
+        losses = 0  # quay lại mức đầu nếu vượt giới hạn
+    return levels[losses]
 
 def calc_stats(history):
     today = datetime.now().strftime("%Y-%m-%d")
@@ -67,26 +69,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "initial_balance": 500000,
             "current_balance": 500000
         }
-        write_data(data)
 
     user = data[user_id]
+
     if not user["strategy"]:
-        keyboard = [[InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
-                     InlineKeyboardButton("Vừa", callback_data="set_medium"),
-                     InlineKeyboardButton("Mạnh", callback_data="set_hard")]]
-        await update.message.reply_text("🛠 Vui lòng chọn chiến lược gấp thếp trước khi chơi:", reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard = [
+            [InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
+             InlineKeyboardButton("Vừa", callback_data="set_medium"),
+             InlineKeyboardButton("Mạnh", callback_data="set_hard")]
+        ]
+        await update.message.reply_text(
+            "🛠️ Vui lòng chọn chiến lược gấp thép trước khi chơi:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        write_data(data)
         return
 
-    bet = get_next_bet(user["history"], user["strategy"])
+    bet = get_next_bet(user)
     win, lose = calc_stats(user["history"])
     profit = user["current_balance"] - user["initial_balance"]
     strategy = user["strategy"]
 
-    warn = ""
-    if profit >= MAX_PROFIT:
-        warn = "\n🎉 Đã đạt lợi nhuận mục tiêu!"
+    warning = ""
+    if profit >= TARGET_PROFIT:
+        warning = "\n🎯 ĐÃ ĐẠT MỤC TIÊU LÃI +100K"
     elif profit <= MAX_LOSS:
-        warn = "\n⚠️ Đã chạm ngưỡng lỗ cho phép!"
+        warning = "\n⚠️ CẢNH BÁO: LỖ QUÁ MỨC -150K"
 
     keyboard = [
         [InlineKeyboardButton("✅ WIN", callback_data="win"),
@@ -100,11 +108,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📅 {datetime.now().strftime('%d/%m/%Y')}\n"
         f"💰 Số dư: {user['current_balance']}đ (Vốn: {user['initial_balance']}đ)\n"
-        f"📈 Lời/Lỗ: {profit:+}đ\n"
+        f"📈 Lời/Lỗ: {profit:+}đ{warning}\n"
         f"🎯 Cược tiếp theo: {bet}đ (Chiến lược: {strategy})\n"
-        f"✅ Thắng: {win}đ | ❌ Thua: {lose}đ" + warn,
+        f"✅ Thắng: {win}đ | ❌ Thua: {lose}đ",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    write_data(data)
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -130,14 +139,20 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not user["strategy"]:
-        keyboard = [[InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
-                     InlineKeyboardButton("Vừa", callback_data="set_medium"),
-                     InlineKeyboardButton("Mạnh", callback_data="set_hard")]]
-        await query.edit_message_text("🛠 Vui lòng chọn chiến lược gấp thếp trước khi chơi:", reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard = [
+            [InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
+             InlineKeyboardButton("Vừa", callback_data="set_medium"),
+             InlineKeyboardButton("Mạnh", callback_data="set_hard")]
+        ]
+        await query.edit_message_text(
+            "🛠️ Vui lòng chọn chiến lược gấp thép trước khi chơi:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        write_data(data)
         return
 
     if query.data in ["win", "lose"]:
-        bet = get_next_bet(user["history"], user["strategy"])
+        bet = get_next_bet(user)
         user["history"].append({"date": today, "result": query.data, "amount": bet})
         if query.data == "win":
             user["current_balance"] += bet
@@ -159,16 +174,16 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"📊 Lịch sử hôm nay:\n{msg}")
         return
 
-    bet = get_next_bet(user["history"], user["strategy"])
+    bet = get_next_bet(user)
     win, lose = calc_stats(user["history"])
     profit = user["current_balance"] - user["initial_balance"]
     strategy = user["strategy"]
 
-    warn = ""
-    if profit >= MAX_PROFIT:
-        warn = "\n🎉 Đã đạt lợi nhuận mục tiêu!"
+    warning = ""
+    if profit >= TARGET_PROFIT:
+        warning = "\n🎯 ĐÃ ĐẠT MỤC TIÊU LÃI +100K"
     elif profit <= MAX_LOSS:
-        warn = "\n⚠️ Đã chạm ngưỡng lỗ cho phép!"
+        warning = "\n⚠️ CẢNH BÁO: LỖ QUÁ MỨC -150K"
 
     keyboard = [
         [InlineKeyboardButton("✅ WIN", callback_data="win"),
@@ -182,9 +197,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         f"📅 {datetime.now().strftime('%d/%m/%Y')}\n"
         f"💰 Số dư: {user['current_balance']}đ (Vốn: {user['initial_balance']}đ)\n"
-        f"📈 Lời/Lỗ: {profit:+}đ\n"
+        f"📈 Lời/Lỗ: {profit:+}đ{warning}\n"
         f"🎯 Cược tiếp theo: {bet}đ (Chiến lược: {strategy})\n"
-        f"✅ Thắng: {win}đ | ❌ Thua: {lose}đ" + warn,
+        f"✅ Thắng: {win}đ | ❌ Thua: {lose}đ",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
