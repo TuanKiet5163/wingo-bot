@@ -1,83 +1,123 @@
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import os, datetime, json
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from datetime import datetime
+import os
+import json
 
-# === Cấu hình ===
-TOKEN = "8044361965:AAEe2xTU0PCmYTtH4UQj1v6z5RTkE2Jo_j4"
-DATA_FILE = "data.json"
-GAP_THEP = [5000, 10000, 15000, 25000]
-SO_DU_BAN_DAU = 500000
+# ==== CẤU HÌNH ====
+TOKEN = os.getenv("8044361965:AAEe2xTU0PCmYTtH4UQj1v6z5RTkE2Jo_j4")  # Đặt biến môi trường trên Railway
+VON_BAN_DAU = 500000
+GAP_THEP = [5000, 10000, 20000, 40000]
+DU_LIEU_FILE = "data.json"
 
-# === Lỗi hỗ trợ ===
+# ==== HÀM DỮ LIỆU ====
 def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
+    if os.path.exists(DU_LIEU_FILE):
+        with open(DU_LIEU_FILE, encoding="utf-8") as f:
             return json.load(f)
     return {
-        "so_du": SO_DU_BAN_DAU,
-        "chuoi": 0,
-        "lich_su": [],
-        "ngay": str(datetime.date.today()),
-        "loi_nhuan": 0
+        "so_du": VON_BAN_DAU,
+        "von_hom_nay": VON_BAN_DAU,
+        "chuoi_index": 0,
+        "lich_su": []
     }
 
 def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
+    with open(DU_LIEU_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-# === Xử lý lệnh ===
+def get_next_cuoc(data):
+    index = data.get("chuoi_index", 0)
+    return GAP_THEP[index] if index < len(GAP_THEP) else GAP_THEP[-1]
+
+def tinh_lai(ket_qua):
+    data = load_data()
+    index = data.get("chuoi_index", 0)
+    cuoc = GAP_THEP[index] if index < len(GAP_THEP) else GAP_THEP[-1]
+
+    if ket_qua == "win":
+        lai = round(cuoc * 0.96)
+        data["so_du"] += lai
+        data["chuoi_index"] = 0
+        data["lich_su"].append(["Thắng", cuoc, lai, data["so_du"]])
+        msg = f"✅ Thắng {cuoc:,}đ ➜ +{lai:,}đ\n💰 Số dư: {data['so_du']:,}đ"
+    else:
+        data["so_du"] -= cuoc
+        data["chuoi_index"] += 1
+        if data["chuoi_index"] >= len(GAP_THEP):
+            data["chuoi_index"] = 0
+            msg = f"❌ Thua {cuoc:,}đ ➜ -{cuoc:,}đ\n⚠️ Đã hết chuỗi gấp thếp, reset chuỗi."
+        else:
+            msg = f"❌ Thua {cuoc:,}đ ➜ -{cuoc:,}đ"
+        data["lich_su"].append(["Thua", cuoc, -cuoc, data["so_du"]])
+        msg += f"\n💰 Số dư: {data['so_du']:,}đ"
+
+    save_data(data)
+    return msg
+
+# ==== HANDLERS ====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
-    reply = (
-        "\U0001F916 Bot đã sẵn sàng!\n"
-        "/start để bắt đầu\n"
-        "/status để xem trạng thái\n"
-        "/win hoặc /lose"
-    )
-    await update.message.reply_text(reply)
+    so_du = data["so_du"]
+    von = data["von_hom_nay"]
+    lai = so_du - von
+    cuoc_tiep = get_next_cuoc(data)
 
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = load_data()
-    cuoc = GAP_THEP[data["chuoi"]]
-    tong_loi = data["so_du"] - SO_DU_BAN_DAU
-    await update.message.reply_text(
-        f"\U0001F4B0 Số dư: {data['so_du']:,} đ\n"
-        f"\U0001F3B2 Cược tiếp: {cuoc:,} đ\n"
-        f"\U0001F4C8 Lãi/Lỗ: {tong_loi:+,} đ"
+    msg = (
+        f"🎯 {datetime.now().strftime('%d/%m/%Y')}\n"
+        f"💰 Số dư: {so_du:,}đ\n"
+        f"📊 Lãi/Lỗ: {lai:+,}đ\n"
+        f"🎲 Cược tiếp theo: {cuoc_tiep:,}đ\n"
+        f"👇 Chọn hành động:"
     )
 
-async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = load_data()
-    cuoc = GAP_THEP[data["chuoi"]]
-    lai = round(cuoc * 0.96)
-    data["so_du"] += lai
-    data["lich_su"].append(("Thắng", cuoc, lai, data["so_du"]))
-    data["chuoi"] = 0
-    save_data(data)
-    await update.message.reply_text(
-        f"\u2705 Thắng {cuoc:,} ➔ +{lai:,} đ\n\U0001F4B0 Số dư: {data['so_du']:,} đ"
-    )
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Thắng", callback_data="win"),
+            InlineKeyboardButton("❌ Thua", callback_data="lose")
+        ],
+        [
+            InlineKeyboardButton("📊 Trạng thái", callback_data="status"),
+            InlineKeyboardButton("🔄 Reset tiền", callback_data="reset")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(msg, reply_markup=reply_markup)
 
-async def lose(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = load_data()
-    cuoc = GAP_THEP[data["chuoi"]]
-    data["so_du"] -= cuoc
-    data["lich_su"].append(("Thua", cuoc, -cuoc, data["so_du"]))
-    data["chuoi"] += 1
-    if data["chuoi"] >= len(GAP_THEP):
-        data["chuoi"] = 0
-    save_data(data)
-    await update.message.reply_text(
-        f"\u274C Thua {cuoc:,} ➔ -{cuoc:,} đ\n\U0001F4B0 Số dư: {data['so_du']:,} đ"
-    )
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    action = query.data
 
-# === Khởi chạy bot ===
-if __name__ == '__main__':
-    app = ApplicationBuilder().token(TOKEN).build()
+    if action == "win":
+        msg = tinh_lai("win")
+    elif action == "lose":
+        msg = tinh_lai("lose")
+    elif action == "status":
+        d = load_data()
+        so_du = d["so_du"]
+        lai = so_du - d["von_hom_nay"]
+        cuoc = get_next_cuoc(d)
+        msg = (
+            f"📅 {datetime.now().strftime('%d/%m/%Y')}\n"
+            f"💰 Số dư: {so_du:,}đ\n"
+            f"📊 Lãi/Lỗ: {lai:+,}đ\n"
+            f"🎲 Cược tiếp theo: {cuoc:,}đ"
+        )
+    elif action == "reset":
+        save_data({
+            "so_du": VON_BAN_DAU,
+            "von_hom_nay": VON_BAN_DAU,
+            "chuoi_index": 0,
+            "lich_su": []
+        })
+        msg = "🔄 Đã reset về vốn ban đầu: 500,000đ."
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("status", status))
-    app.add_handler(CommandHandler("win", win))
-    app.add_handler(CommandHandler("lose", lose))
+    await query.edit_message_text(msg)
 
-    app.run_polling()
+# ==== KHỞI ĐỘNG ====
+app = Application.builder().token(TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CallbackQueryHandler(button_handler))
+print("🤖 Bot Telegram đang chạy...")
+app.run_polling()
