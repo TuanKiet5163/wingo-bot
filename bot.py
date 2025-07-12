@@ -1,123 +1,118 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from datetime import datetime
-import os
 import json
+from datetime import date
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# ==== CẤU HÌNH ====
-TOKEN = os.getenv("8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc")  # Đặt biến môi trường trên Railway
-VON_BAN_DAU = 500000
-GAP_THEP = [5000, 10000, 20000, 40000]
-DU_LIEU_FILE = "data.json"
+# 🔐 Token Telegram tích hợp trực tiếp (không khuyến khích chia sẻ công khai)
+TOKEN = "8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc"
 
-# ==== HÀM DỮ LIỆU ====
+DATA_FILE = "data.json"
+
+DEFAULT_DATA = {
+    "balance": 500000,
+    "profit": 0,
+    "current_bet": 10000,
+    "history": [],
+    "loss_streak": 0,
+    "initial_balance": 500000,
+    "last_day": str(date.today())
+}
+
 def load_data():
-    if os.path.exists(DU_LIEU_FILE):
-        with open(DU_LIEU_FILE, encoding="utf-8") as f:
+    try:
+        with open(DATA_FILE, "r") as f:
             return json.load(f)
-    return {
-        "so_du": VON_BAN_DAU,
-        "von_hom_nay": VON_BAN_DAU,
-        "chuoi_index": 0,
-        "lich_su": []
-    }
+    except:
+        return DEFAULT_DATA.copy()
 
 def save_data(data):
-    with open(DU_LIEU_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f)
 
-def get_next_cuoc(data):
-    index = data.get("chuoi_index", 0)
-    return GAP_THEP[index] if index < len(GAP_THEP) else GAP_THEP[-1]
+def reset_if_new_day(data):
+    today = str(date.today())
+    if data.get("last_day") != today:
+        data["profit"] = 0
+        data["history"] = []
+        data["loss_streak"] = 0
+        data["last_day"] = today
+        data["initial_balance"] = data["balance"]
+        save_data(data)
 
-def tinh_lai(ket_qua):
-    data = load_data()
-    index = data.get("chuoi_index", 0)
-    cuoc = GAP_THEP[index] if index < len(GAP_THEP) else GAP_THEP[-1]
+def calculate_next_bet(loss_streak):
+    base = 10000
+    return base * (2 ** loss_streak)
 
-    if ket_qua == "win":
-        lai = round(cuoc * 0.96)
-        data["so_du"] += lai
-        data["chuoi_index"] = 0
-        data["lich_su"].append(["Thắng", cuoc, lai, data["so_du"]])
-        msg = f"✅ Thắng {cuoc:,}đ ➜ +{lai:,}đ\n💰 Số dư: {data['so_du']:,}đ"
-    else:
-        data["so_du"] -= cuoc
-        data["chuoi_index"] += 1
-        if data["chuoi_index"] >= len(GAP_THEP):
-            data["chuoi_index"] = 0
-            msg = f"❌ Thua {cuoc:,}đ ➜ -{cuoc:,}đ\n⚠️ Đã hết chuỗi gấp thếp, reset chuỗi."
-        else:
-            msg = f"❌ Thua {cuoc:,}đ ➜ -{cuoc:,}đ"
-        data["lich_su"].append(["Thua", cuoc, -cuoc, data["so_du"]])
-        msg += f"\n💰 Số dư: {data['so_du']:,}đ"
-
-    save_data(data)
-    return msg
-
-# ==== HANDLERS ====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = load_data()
-    so_du = data["so_du"]
-    von = data["von_hom_nay"]
-    lai = so_du - von
-    cuoc_tiep = get_next_cuoc(data)
-
-    msg = (
-        f"🎯 {datetime.now().strftime('%d/%m/%Y')}\n"
-        f"💰 Số dư: {so_du:,}đ\n"
-        f"📊 Lãi/Lỗ: {lai:+,}đ\n"
-        f"🎲 Cược tiếp theo: {cuoc_tiep:,}đ\n"
-        f"👇 Chọn hành động:"
+def main_menu(data):
+    return (
+        f"💰 Số dư: {data['balance']:,} đ\n"
+        f"📉 Vốn ban đầu hôm nay: {data['initial_balance']:,} đ\n"
+        f"📈 Lời/Lỗ: {data['balance'] - data['initial_balance']:+,} đ\n"
+        f"🎯 Tiền cược tiếp theo: {data['current_bet']:,} đ\n"
+        "\nChọn hành động:"
     )
 
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Thắng", callback_data="win"),
-            InlineKeyboardButton("❌ Thua", callback_data="lose")
-        ],
-        [
-            InlineKeyboardButton("📊 Trạng thái", callback_data="status"),
-            InlineKeyboardButton("🔄 Reset tiền", callback_data="reset")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(msg, reply_markup=reply_markup)
+def build_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Thắng", callback_data="win"),
+         InlineKeyboardButton("❌ Thua", callback_data="lose")],
+        [InlineKeyboardButton("🔄 Reset", callback_data="reset"),
+         InlineKeyboardButton("📊 Lịch sử", callback_data="history")]
+    ])
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = load_data()
+    reset_if_new_day(data)
+    await update.message.reply_text(main_menu(data), reply_markup=build_keyboard())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    data = load_data()
+    reset_if_new_day(data)
+
     action = query.data
 
     if action == "win":
-        msg = tinh_lai("win")
+        data["balance"] += data["current_bet"]
+        data["profit"] += data["current_bet"]
+        data["history"].append(f"[✅] +{data['current_bet']:,} đ")
+        data["loss_streak"] = 0
     elif action == "lose":
-        msg = tinh_lai("lose")
-    elif action == "status":
-        d = load_data()
-        so_du = d["so_du"]
-        lai = so_du - d["von_hom_nay"]
-        cuoc = get_next_cuoc(d)
-        msg = (
-            f"📅 {datetime.now().strftime('%d/%m/%Y')}\n"
-            f"💰 Số dư: {so_du:,}đ\n"
-            f"📊 Lãi/Lỗ: {lai:+,}đ\n"
-            f"🎲 Cược tiếp theo: {cuoc:,}đ"
-        )
+        data["balance"] -= data["current_bet"]
+        data["profit"] -= data["current_bet"]
+        data["history"].append(f"[❌] -{data['current_bet']:,} đ")
+        data["loss_streak"] += 1
     elif action == "reset":
-        save_data({
-            "so_du": VON_BAN_DAU,
-            "von_hom_nay": VON_BAN_DAU,
-            "chuoi_index": 0,
-            "lich_su": []
-        })
-        msg = "🔄 Đã reset về vốn ban đầu: 500,000đ."
+        data = DEFAULT_DATA.copy()
+        data["last_day"] = str(date.today())
+    elif action == "history":
+        history_text = "\n".join(data["history"][-15:]) or "Chưa có lịch sử."
+        await query.edit_message_text(
+            f"Lịch sử gần đây:\n{history_text}\n\n"
+            f"💰 Số dư: {data['balance']:,} đ\n"
+            f"📉 Vốn ban đầu hôm nay: {data['initial_balance']:,} đ\n"
+            f"📈 Lời/Lỗ: {data['balance'] - data['initial_balance']:+,} đ\n"
+            f"🎯 Cược tiếp theo: {data['current_bet']:,} đ",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ Quay lại", callback_data="back")]
+            ])
+        )
+        save_data(data)
+        return
 
-    await query.edit_message_text(msg)
+    if action != "history":
+        data["current_bet"] = calculate_next_bet(data["loss_streak"])
+        save_data(data)
+        await query.edit_message_text(main_menu(data), reply_markup=build_keyboard())
 
-# ==== KHỞI ĐỘNG ====
-app = Application.builder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button_handler))
-print("🤖 Bot Telegram đang chạy...")
-app.run_polling()
+async def main():
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    print("Bot đang chạy...")
+    await app.run_polling()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
