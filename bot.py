@@ -3,8 +3,9 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 import json, os
 from datetime import datetime
 
-# === CẤU HÌNH ===
-TOKEN = "8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc"  # ← Thay bằng biến môi trường nếu chạy Railway
+# === TOKEN tích hợp sẵn ===
+TOKEN = "8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc"
+
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -12,7 +13,6 @@ GAP_THEP = [5000, 10000, 15000, 25000]
 TARGET_PROFIT = 100000
 MAX_LOSS = -150000
 
-# === HÀM XỬ LÝ ===
 def get_today():
     return datetime.now().strftime("%Y-%m-%d")
 
@@ -44,7 +44,6 @@ def get_next_bet(history):
         else: break
     return GAP_THEP[losses] if losses < len(GAP_THEP) else GAP_THEP[0]
 
-# === COMMAND: /start ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     history = load_history()
     bet = get_next_bet(history)
@@ -70,7 +69,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# === CALLBACK: Nút bấm ===
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -91,7 +89,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"📊 Lịch sử hôm nay:\n{msg}")
         return
 
-    # Update UI sau mỗi thao tác
     bet = get_next_bet(data)
     win, lose, profit = calc_stats(data)
     warn = ""
@@ -114,7 +111,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# === COMMAND: /status ===
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_history()
     bet = get_next_bet(data)
@@ -126,11 +122,8 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📈 Lời/lỗ: {profit:+}đ"
     )
 
-# === CHẠY BOT ===
 if __name__ == "__main__":
     import asyncio
-    from dotenv import load_dotenv
-    load_dotenv()  # nếu chạy local
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status))
