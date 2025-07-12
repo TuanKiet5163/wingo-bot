@@ -4,11 +4,13 @@ import json
 import os
 from datetime import datetime
 
-# Token
+# Token Telegram Bot
 TOKEN = "8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc"
+
+# File lưu trữ dữ liệu người dùng
 DATA_FILE = "data.json"
 
-# Gấp thếp theo chiến lược
+# Chiến lược gấp thếp
 GAP_THEP = {
     "light": [5000, 10000, 15000, 25000],
     "medium": [10000, 20000, 40000],
@@ -29,16 +31,20 @@ def write_data(data):
         json.dump(data, f)
 
 def get_next_bet(history, strategy):
+    today = datetime.now().strftime("%Y-%m-%d")
     losses = 0
     for entry in reversed(history):
-        if entry["date"] != datetime.now().strftime("%Y-%m-%d"):
+        if entry["date"] != today:
             break
         if entry["result"] == "lose":
             losses += 1
         else:
             break
     levels = GAP_THEP.get(strategy, GAP_THEP["medium"])
-    return levels[losses] if losses < len(levels) else levels[0]
+    if losses >= len(levels):
+        return levels[0]
+    else:
+        return levels[losses]
 
 def calc_stats(history):
     today = datetime.now().strftime("%Y-%m-%d")
@@ -54,13 +60,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in data:
         data[user_id] = {
             "history": [],
-            "strategy": "medium",
+            "strategy": None,
             "initial_balance": 500000,
             "current_balance": 500000
         }
         write_data(data)
 
     user = data[user_id]
+    if not user["strategy"]:
+        keyboard = [
+            [InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
+             InlineKeyboardButton("Vừa", callback_data="set_medium"),
+             InlineKeyboardButton("Mạnh", callback_data="set_hard")]
+        ]
+        await update.message.reply_text(
+            "🛠 Vui lòng chọn chiến lược gấp thếp để bắt đầu:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
     bet = get_next_bet(user["history"], user["strategy"])
     win, lose = calc_stats(user["history"])
     profit = user["current_balance"] - user["initial_balance"]
@@ -93,13 +111,31 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in data:
         data[user_id] = {
             "history": [],
-            "strategy": "medium",
+            "strategy": None,
             "initial_balance": 500000,
             "current_balance": 500000
         }
 
     user = data[user_id]
     today = datetime.now().strftime("%Y-%m-%d")
+
+    if query.data.startswith("set_"):
+        user["strategy"] = query.data.split("_")[1]
+        write_data(data)
+        await query.edit_message_text("✅ Đã chọn chiến lược. Gửi /start để bắt đầu!")
+        return
+
+    if not user["strategy"]:
+        keyboard = [
+            [InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
+             InlineKeyboardButton("Vừa", callback_data="set_medium"),
+             InlineKeyboardButton("Mạnh", callback_data="set_hard")]
+        ]
+        await query.edit_message_text(
+            "🛠 Vui lòng chọn chiến lược gấp thếp trước khi chơi:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
 
     if query.data in ["win", "lose"]:
         bet = get_next_bet(user["history"], user["strategy"])
@@ -123,10 +159,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]) if entries else "📭 Chưa có lịch sử hôm nay."
         await query.edit_message_text(f"📊 Lịch sử hôm nay:\n{msg}")
         return
-
-    elif query.data.startswith("set_"):
-        user["strategy"] = query.data.split("_")[1]
-        write_data(data)
 
     bet = get_next_bet(user["history"], user["strategy"])
     win, lose = calc_stats(user["history"])
