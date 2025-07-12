@@ -1,118 +1,151 @@
-import json
-from datetime import date
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import json
+import os
+from datetime import datetime
 
-# 🔐 Token Telegram tích hợp trực tiếp (không khuyến khích chia sẻ công khai)
+# Token bot Telegram
 TOKEN = "8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc"
 
+# Tên file lưu dữ liệu
 DATA_FILE = "data.json"
 
-DEFAULT_DATA = {
-    "balance": 500000,
-    "profit": 0,
-    "current_bet": 10000,
-    "history": [],
-    "loss_streak": 0,
-    "initial_balance": 500000,
-    "last_day": str(date.today())
-}
+# Khởi tạo file dữ liệu nếu chưa tồn tại
+def init_data():
+    if not os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "w") as f:
+            json.dump({}, f)
 
-def load_data():
-    try:
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return DEFAULT_DATA.copy()
+# Đọc dữ liệu
+def read_data():
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
 
-def save_data(data):
+# Ghi dữ liệu
+def write_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
 
-def reset_if_new_day(data):
-    today = str(date.today())
-    if data.get("last_day") != today:
-        data["profit"] = 0
-        data["history"] = []
-        data["loss_streak"] = 0
-        data["last_day"] = today
-        data["initial_balance"] = data["balance"]
-        save_data(data)
+# Tính toán thống kê trong ngày
+def calc_stats(history):
+    today = datetime.now().strftime("%Y-%m-%d")
+    entries = [h for h in history if h["date"] == today]
+    win = sum([h["amount"] for h in entries if h["result"] == "win"])
+    lose = sum([h["amount"] for h in entries if h["result"] == "lose"])
+    total = win - lose
+    return win, lose, total
 
-def calculate_next_bet(loss_streak):
-    base = 10000
-    return base * (2 ** loss_streak)
+# Tính tiền cược tiếp theo
+def next_bet(history):
+    if not history:
+        return 10000
+    last = history[-1]
+    if last["result"] == "lose":
+        return last["amount"] * 2
+    else:
+        return 10000
 
-def main_menu(data):
-    return (
-        f"💰 Số dư: {data['balance']:,} đ\n"
-        f"📉 Vốn ban đầu hôm nay: {data['initial_balance']:,} đ\n"
-        f"📈 Lời/Lỗ: {data['balance'] - data['initial_balance']:+,} đ\n"
-        f"🎯 Tiền cược tiếp theo: {data['current_bet']:,} đ\n"
-        "\nChọn hành động:"
-    )
-
-def build_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Thắng", callback_data="win"),
-         InlineKeyboardButton("❌ Thua", callback_data="lose")],
-        [InlineKeyboardButton("🔄 Reset", callback_data="reset"),
-         InlineKeyboardButton("📊 Lịch sử", callback_data="history")]
-    ])
-
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = load_data()
-    reset_if_new_day(data)
-    await update.message.reply_text(main_menu(data), reply_markup=build_keyboard())
+    user_id = str(update.effective_user.id)
+    init_data()
+    data = read_data()
+    if user_id not in data:
+        data[user_id] = {"history": []}
+        write_data(data)
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    history = data[user_id]["history"]
+    win, lose, total = calc_stats(history)
+    bet = next_bet(history)
+
+    keyboard = [
+        [InlineKeyboardButton("✅ WIN", callback_data="win"),
+         InlineKeyboardButton("❌ LOSE", callback_data="lose")],
+        [InlineKeyboardButton("🔄 RESET", callback_data="reset"),
+         InlineKeyboardButton("📊 XEM", callback_data="view")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    text = (
+        f"💰 Số dư hôm nay: {total}đ\n"
+        f"🎯 Cược tiếp theo: {bet}đ\n"
+        f"✅ Thắng: {win}đ | ❌ Thua: {lose}đ\n"
+        f"\n➡️ Chọn kết quả ván vừa chơi:"
+    )
+    await update.message.reply_text(text, reply_markup=reply_markup)
+
+# /reset command
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    init_data()
+    data = read_data()
+    data[user_id] = {"history": []}
+    write_data(data)
+    await update.message.reply_text("✅ Đã reset phiên chơi. Gửi /start để bắt đầu lại.")
+
+# Callback từ nút bấm
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = load_data()
-    reset_if_new_day(data)
 
-    action = query.data
+    user_id = str(query.from_user.id)
+    init_data()
+    data = read_data()
+    if user_id not in data:
+        data[user_id] = {"history": []}
 
-    if action == "win":
-        data["balance"] += data["current_bet"]
-        data["profit"] += data["current_bet"]
-        data["history"].append(f"[✅] +{data['current_bet']:,} đ")
-        data["loss_streak"] = 0
-    elif action == "lose":
-        data["balance"] -= data["current_bet"]
-        data["profit"] -= data["current_bet"]
-        data["history"].append(f"[❌] -{data['current_bet']:,} đ")
-        data["loss_streak"] += 1
-    elif action == "reset":
-        data = DEFAULT_DATA.copy()
-        data["last_day"] = str(date.today())
-    elif action == "history":
-        history_text = "\n".join(data["history"][-15:]) or "Chưa có lịch sử."
-        await query.edit_message_text(
-            f"Lịch sử gần đây:\n{history_text}\n\n"
-            f"💰 Số dư: {data['balance']:,} đ\n"
-            f"📉 Vốn ban đầu hôm nay: {data['initial_balance']:,} đ\n"
-            f"📈 Lời/Lỗ: {data['balance'] - data['initial_balance']:+,} đ\n"
-            f"🎯 Cược tiếp theo: {data['current_bet']:,} đ",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("↩️ Quay lại", callback_data="back")]
+    history = data[user_id]["history"]
+
+    if query.data in ["win", "lose"]:
+        amount = next_bet(history)
+        history.append({
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "result": query.data,
+            "amount": amount
+        })
+        write_data(data)
+
+    elif query.data == "reset":
+        data[user_id]["history"] = []
+        write_data(data)
+
+    elif query.data == "view":
+        today = datetime.now().strftime("%Y-%m-%d")
+        entries = [h for h in history if h["date"] == today]
+        if entries:
+            msg = "\n".join([
+                f"{i+1}. {'✅' if h['result']=='win' else '❌'} {h['amount']}đ"
+                for i, h in enumerate(entries)
             ])
-        )
-        save_data(data)
+        else:
+            msg = "📭 Chưa có lịch sử hôm nay."
+        await query.edit_message_text(f"📊 Lịch sử hôm nay:\n{msg}")
         return
 
-    if action != "history":
-        data["current_bet"] = calculate_next_bet(data["loss_streak"])
-        save_data(data)
-        await query.edit_message_text(main_menu(data), reply_markup=build_keyboard())
+    win, lose, total = calc_stats(history)
+    bet = next_bet(history)
 
-async def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    print("Bot đang chạy...")
-    await app.run_polling()
+    keyboard = [
+        [InlineKeyboardButton("✅ WIN", callback_data="win"),
+         InlineKeyboardButton("❌ LOSE", callback_data="lose")],
+        [InlineKeyboardButton("🔄 RESET", callback_data="reset"),
+         InlineKeyboardButton("📊 XEM", callback_data="view")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
+    text = (
+        f"💰 Số dư hôm nay: {total}đ\n"
+        f"🎯 Cược tiếp theo: {bet}đ\n"
+        f"✅ Thắng: {win}đ | ❌ Thua: {lose}đ\n"
+        f"\n➡️ Chọn kết quả ván vừa chơi:"
+    )
+    await query.edit_message_text(text, reply_markup=reply_markup)
+
+# Main
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CallbackQueryHandler(button))
+    asyncio.run(app.run_polling())
