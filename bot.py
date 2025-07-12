@@ -4,7 +4,7 @@ import json, os
 from datetime import datetime
 
 # === CẤU HÌNH ===
-TOKEN = "YOUR_TOKEN_HERE"  # ← Thay bằng biến môi trường nếu chạy Railway
+TOKEN = "8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc"  # ← Thay bằng biến môi trường nếu chạy Railway
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
