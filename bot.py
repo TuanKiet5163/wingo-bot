@@ -5,7 +5,7 @@ from datetime import datetime
 import asyncio
 
 # ===== CẤU HÌNH =====
-TOKEN = "8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc"
+TOKEN = "YOUR_BOT_TOKEN"
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -15,7 +15,7 @@ ALERT_PROFIT = 100000
 ALERT_LOSS = -150000
 ALERT_STREAK = 3
 
-# ===== DỮ LIỆU =====
+# ===== HÀM DỮ LIỆU =====
 def get_today(): return datetime.now().strftime("%Y-%m-%d")
 def get_now_time(): return datetime.now().strftime("%H:%M:%S")
 def get_file(): return os.path.join(DATA_DIR, f"{get_today()}.json")
@@ -52,12 +52,35 @@ def lose_streak(history):
         else: break
     return count
 
+# ===== AI GỢI Ý CƯỢC =====
+def analyze_ai_suggestion(history):
+    today_history = [h for h in history if h["date"] == get_today()]
+    total = len(today_history)
+    losses = sum(1 for h in today_history if h["result"] == "lose")
+    streak = lose_streak(today_history)
+    base_bet = get_next_bet(today_history)
+    suggest = base_bet
+    message = f"🧠 Gợi ý cược: {base_bet:,}đ"
+
+    if streak >= 3 or (losses >= 5 and losses / total > 0.6):
+        message += "\n❗ Cảnh báo: đang chuỗi thua dài"
+        message += "\n⛔ NÊN NGHỈ!"
+    elif streak == 2:
+        suggest = PATTERN[0]
+        message += "\n⚠️ Đang có 2 thua liên tiếp, nên cược nhỏ"
+
+    prob = (losses / total) if total > 0 else 0
+    prob_thua_tiep = round(prob * 100)
+    message += f"\n🔍 Xác suất thua hiện tại: ~{prob_thua_tiep}%"
+    return suggest, message
+
 # ===== GIAO DIỆN =====
 async def show_status(send_func):
     data = load_data()
     bet = get_next_bet(data["history"])
     wins, losses, profit = calc_stats(data)
     time = get_now_time()
+    _, ai_msg = analyze_ai_suggestion(data["history"])
     warn = ""
     if profit >= ALERT_PROFIT: warn += "\n🔔 ĐẠT MỤC TIÊU LÃI"
     if profit <= ALERT_LOSS: warn += "\n⚠️ LỖ QUÁ MỨC"
@@ -75,7 +98,8 @@ async def show_status(send_func):
         f"💰 Số dư: {data['balance']:,}đ\n"
         f"🎯 Cược tiếp theo: {bet:,}đ\n"
         f"✅ Tổng thắng: {wins:,}đ | ❌ Tổng thua: {losses:,}đ\n"
-        f"📈 Lời/Lỗ: {profit:+,}đ{warn}",
+        f"📈 Lời/Lỗ: {profit:+,}đ{warn}\n\n"
+        f"{ai_msg}",
         reply_markup=reply_markup
     )
 
@@ -119,7 +143,7 @@ Số phiên: {total}
 """
     await update.message.reply_text(msg)
 
-# ===== XỬ LÝ NÚT BẤM =====
+# ===== NÚT BẤM =====
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
