@@ -1,92 +1,91 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputFile
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import json, os
 from datetime import datetime
+import asyncio
 
 # ===== CẤU HÌNH =====
 TOKEN = "8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc"
-
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-PATTERN = [5000, 10000, 15000, 25000]  # chu kỳ cược tuần hoàn
-TARGET_PROFIT = 100000
-MAX_LOSS = -150000
-INITIAL_BALANCE = 500_000
+PATTERN = [5000, 10000, 15000, 25000]
+INITIAL_BALANCE = 500000
+ALERT_PROFIT = 100000
+ALERT_LOSS = -150000
+ALERT_STREAK = 3
 
-# ===== LƯU / TẢI DỮ LIỆU =====
-def get_today():
-    return datetime.now().strftime("%Y-%m-%d")
-
-def get_data_file():
-    return os.path.join(DATA_DIR, f"{get_today()}.json")
+# ===== DỮ LIỆU =====
+def get_today(): return datetime.now().strftime("%Y-%m-%d")
+def get_now_time(): return datetime.now().strftime("%H:%M:%S")
+def get_file(): return os.path.join(DATA_DIR, f"{get_today()}.json")
 
 def load_data():
-    file = get_data_file()
-    if os.path.exists(file):
-        with open(file, "r") as f:
-            return json.load(f)
-    return {"history": [], "balance": INITIAL_BALANCE}
+    if os.path.exists(get_file()):
+        with open(get_file(), "r") as f: return json.load(f)
+    return {"balance": INITIAL_BALANCE, "history": []}
 
 def save_data(data):
-    with open(get_data_file(), "w") as f:
-        json.dump(data, f)
-
-# ===== TÍNH TOÁN =====
-def calc_stats(history, balance):
-    win = sum(h["amount"] for h in history if h["result"] == "win")
-    lose = sum(h["amount"] for h in history if h["result"] == "lose")
-    profit = balance - INITIAL_BALANCE
-    return win, lose, profit
+    with open(get_file(), "w") as f: json.dump(data, f)
 
 def get_next_bet(history):
     losses = 0
     for h in reversed(history):
         if h["date"] != get_today(): break
-        if h["result"] == "lose":
-            losses += 1
-        else:
-            break
+        if h["result"] == "lose": losses += 1
+        else: break
     return PATTERN[losses % len(PATTERN)]
 
-# ===== /start =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_status(update.message.reply_text)
-
-# ===== HIỂN THỊ TRẠNG THÁI =====
-async def show_status(send_func):
-    data = load_data()
+def calc_stats(data):
     history = data["history"]
     balance = data["balance"]
-    bet = get_next_bet(history)
-    win, lose, profit = calc_stats(history, balance)
+    wins = sum(h["amount"] for h in history if h["result"] == "win")
+    losses = sum(h["amount"] for h in history if h["result"] == "lose")
+    profit = balance - INITIAL_BALANCE
+    return wins, losses, profit
 
+def lose_streak(history):
+    count = 0
+    for h in reversed(history):
+        if h["date"] != get_today(): break
+        if h["result"] == "lose": count += 1
+        else: break
+    return count
+
+# ===== GIAO DIỆN =====
+async def show_status(send_func):
+    data = load_data()
+    bet = get_next_bet(data["history"])
+    wins, losses, profit = calc_stats(data)
+    time = get_now_time()
     warn = ""
-    if profit >= TARGET_PROFIT:
-        warn = "\n🎯 ĐẠT MỤC TIÊU LÃI"
-    elif profit <= MAX_LOSS:
-        warn = "\n⚠️ VƯỢT NGƯỠNG LỖ!"
+    if profit >= ALERT_PROFIT: warn += "\n🔔 ĐẠT MỤC TIÊU LÃI"
+    if profit <= ALERT_LOSS: warn += "\n⚠️ LỖ QUÁ MỨC"
+    if lose_streak(data["history"]) >= ALERT_STREAK: warn += "\n❗ THUA LIÊN TIẾP"
 
     reply_markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ WIN", callback_data="win"),
          InlineKeyboardButton("❌ LOSE", callback_data="lose")],
-        [InlineKeyboardButton("📊 Lịch sử", callback_data="view"),
+        [InlineKeyboardButton("📊 Xem lịch sử", callback_data="view"),
          InlineKeyboardButton("🔄 Reset", callback_data="reset")]
     ])
+
     await send_func(
-        f"📅 {get_today()}\n"
-        f"💰 Số dư: {balance:,}đ\n"
-        f"🎯 Cược tiếp: {bet:,}đ\n"
-        f"✅ Thắng: {win:,}đ | ❌ Thua: {lose:,}đ\n"
-        f"📈 Lãi/Lỗ: {profit:+,}đ{warn}",
+        f"📅 {get_today()} | 🕒 {time}\n"
+        f"💰 Số dư: {data['balance']:,}đ\n"
+        f"🎯 Cược tiếp theo: {bet:,}đ\n"
+        f"✅ Tổng thắng: {wins:,}đ | ❌ Tổng thua: {losses:,}đ\n"
+        f"📈 Lời/Lỗ: {profit:+,}đ{warn}",
         reply_markup=reply_markup
     )
 
-# ===== /status =====
+# ===== COMMANDS =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_status(update.message.reply_text)
+
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_status(update.message.reply_text)
 
-# ===== /resetvon =====
 async def resetvon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     data["balance"] = INITIAL_BALANCE
@@ -94,35 +93,59 @@ async def resetvon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔁 Đã reset vốn về 500.000đ.")
     await show_status(update.message.reply_text)
 
-# ===== /setvon <số> =====
 async def setvon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        new_balance = int(context.args[0])
-        if new_balance < 10000:
-            raise ValueError
+        amount = int(context.args[0])
         data = load_data()
-        data["balance"] = new_balance
+        data["balance"] = amount
         save_data(data)
-        await update.message.reply_text(f"✅ Đã đặt lại vốn: {new_balance:,}đ")
+        await update.message.reply_text(f"✅ Đã đặt vốn: {amount:,}đ")
         await show_status(update.message.reply_text)
     except:
         await update.message.reply_text("❌ Sai cú pháp. Dùng: /setvon 123000")
 
-# ===== NÚT WIN/LOSE/RESET/VIEW =====
+async def backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_document(InputFile(get_file()), filename=os.path.basename(get_file()))
+
+async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = load_data()
+    wins, losses, profit = calc_stats(data)
+    total = len(data["history"])
+    msg = f"""📊 TỔNG KẾT {get_today()}:
+Số phiên: {total}
+✅ Tổng thắng: {wins:,}đ
+❌ Tổng thua: {losses:,}đ
+📈 Lời/Lỗ: {profit:+,}đ
+"""
+    await update.message.reply_text(msg)
+
+# ===== XỬ LÝ NÚT BẤM =====
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     data = load_data()
     history = data["history"]
     balance = data["balance"]
-    bet = get_next_bet(history)
+
+    if query.data == "reset":
+        data = {"balance": INITIAL_BALANCE, "history": []}
+        save_data(data)
+        await show_status(query.edit_message_text)
+        return
+
+    if query.data == "view":
+        if not history:
+            await query.edit_message_text("📭 Chưa có lịch sử hôm nay.")
+            return
+        lines = [f"{i+1}. {'✅' if h['result']=='win' else '❌'} {h['amount']:,}đ" for i, h in enumerate(history)]
+        await query.edit_message_text("📊 Lịch sử hôm nay:\n" + "\n".join(lines[-15:]))
+        return
 
     if query.data in ["win", "lose"]:
+        bet = get_next_bet(history)
         if bet > balance and query.data == "lose":
-            await query.edit_message_text("❌ Không đủ số dư để cược! Hãy /resetvon hoặc /setvon.")
+            await query.edit_message_text("❌ Không đủ vốn để cược. Hãy /setvon hoặc /resetvon.")
             return
-
         amount = round(bet * 0.96) if query.data == "win" else -bet
         balance += amount
         history.append({"date": get_today(), "result": query.data, "amount": bet})
@@ -130,28 +153,16 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data["history"] = history
         save_data(data)
 
-    elif query.data == "reset":
-        data = {"history": [], "balance": INITIAL_BALANCE}
-        save_data(data)
-
-    elif query.data == "view":
-        if not history:
-            await query.edit_message_text("📭 Chưa có lịch sử hôm nay.")
-            return
-        lines = [f"{i+1}. {'✅' if h['result']=='win' else '❌'} {h['amount']:,}đ" for i, h in enumerate(history)]
-        msg = "\n".join(lines)
-        await query.edit_message_text(f"📊 Lịch sử hôm nay:\n{msg}")
-        return
-
     await show_status(query.edit_message_text)
 
 # ===== CHẠY BOT =====
 if __name__ == "__main__":
-    import asyncio
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("resetvon", resetvon))
     app.add_handler(CommandHandler("setvon", setvon))
+    app.add_handler(CommandHandler("backup", backup))
+    app.add_handler(CommandHandler("summary", summary))
     app.add_handler(CallbackQueryHandler(button))
     asyncio.run(app.run_polling())
