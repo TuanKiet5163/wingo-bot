@@ -3,7 +3,7 @@ from datetime import datetime
 import json, os
 
 # ==== CẤU HÌNH ====
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+BOT_TOKEN = "8044361965:AAEe2xTU0PCmYTtH4UQj1v6z5RTkE2Jo_j4"
 DATA_FOLDER = "data_logs"
 GAP_THEP = [5000, 10000, 15000, 25000]
 VON_BAN_DAU = 500000
