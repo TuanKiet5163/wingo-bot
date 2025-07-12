@@ -4,18 +4,18 @@ import json
 import os
 from datetime import datetime
 
-# Token
+# Token Telegram
 TOKEN = "8044361965:AAHyGOUI2CaBN57r5Ogtt7RhxpYpf7V9-pc"
 DATA_FILE = "data.json"
 
-# Gấp thếp theo chiến lược
+# Chiến lược gấp thếp
 GAP_THEP = {
     "light": [5000, 10000, 15000, 25000],
     "medium": [10000, 20000, 40000],
     "hard": [20000, 40000, 80000, 160000]
 }
 
-# Giới hạn cảnh báo
+# Mức cảnh báo lãi/lỗ
 TARGET_PROFIT = 100000
 MAX_LOSS = -150000
 
@@ -38,7 +38,6 @@ def get_next_bet(user):
     if not strategy or strategy not in GAP_THEP:
         return 0
     levels = GAP_THEP[strategy]
-
     losses = 0
     for entry in reversed(history):
         if entry["date"] != datetime.now().strftime("%Y-%m-%d"):
@@ -48,7 +47,7 @@ def get_next_bet(user):
         else:
             break
     if losses >= len(levels):
-        losses = 0  # quay lại mức đầu nếu vượt giới hạn
+        losses = 0
     return levels[losses]
 
 def calc_stats(history):
@@ -73,15 +72,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = data[user_id]
 
     if not user["strategy"]:
-        keyboard = [
-            [InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
-             InlineKeyboardButton("Vừa", callback_data="set_medium"),
-             InlineKeyboardButton("Mạnh", callback_data="set_hard")]
-        ]
-        await update.message.reply_text(
-            "🛠️ Vui lòng chọn chiến lược gấp thép trước khi chơi:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        keyboard = [[
+            InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
+            InlineKeyboardButton("Vừa", callback_data="set_medium"),
+            InlineKeyboardButton("Mạnh", callback_data="set_hard")
+        ]]
+        await update.message.reply_text("🛠️ Vui lòng chọn chiến lược gấp thép trước khi chơi:", reply_markup=InlineKeyboardMarkup(keyboard))
         write_data(data)
         return
 
@@ -139,15 +135,12 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not user["strategy"]:
-        keyboard = [
-            [InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
-             InlineKeyboardButton("Vừa", callback_data="set_medium"),
-             InlineKeyboardButton("Mạnh", callback_data="set_hard")]
-        ]
-        await query.edit_message_text(
-            "🛠️ Vui lòng chọn chiến lược gấp thép trước khi chơi:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        keyboard = [[
+            InlineKeyboardButton("📈 Nhẹ", callback_data="set_light"),
+            InlineKeyboardButton("Vừa", callback_data="set_medium"),
+            InlineKeyboardButton("Mạnh", callback_data="set_hard")
+        ]]
+        await query.edit_message_text("🛠️ Vui lòng chọn chiến lược gấp thép trước khi chơi:", reply_markup=InlineKeyboardMarkup(keyboard))
         write_data(data)
         return
 
@@ -203,7 +196,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# Chạy bot
+# Khởi chạy bot
 if __name__ == "__main__":
     import asyncio
     app = Application.builder().token(TOKEN).build()
