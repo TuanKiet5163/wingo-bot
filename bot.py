@@ -3,7 +3,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import os, datetime, json
 
 # === Cấu hình ===
-TOKEN = "<8044361965:AAEe2xTU0PCmYTtH4UQj1v6z5RTkE2Jo_j4>"
+TOKEN = "8044361965:AAEe2xTU0PCmYTtH4UQj1v6z5RTkE2Jo_j4"
 DATA_FILE = "data.json"
 GAP_THEP = [5000, 10000, 15000, 25000]
 SO_DU_BAN_DAU = 500000
