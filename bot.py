@@ -38,7 +38,7 @@ def get_next_bet(history, strategy):
         else:
             break
     levels = GAP_THEP.get(strategy, GAP_THEP["medium"])
-    return levels[losses] if losses < len(levels) else levels[-1]
+    return levels[losses] if losses < len(levels) else levels[0]
 
 def calc_stats(history):
     today = datetime.now().strftime("%Y-%m-%d")
